@@ -1,0 +1,78 @@
+# Activación de un recurso Service "headless", solo para obtener  el alta
+# de los nombres de Pods en el DNS (para descubrir su IP).
+#
+# Parece que los nombres del campo "containers" de pods a dar de alta en dns
+# deben coincidir el subcampo campo "name" (servidor) del manifiesto con el nombre
+# del contenedor en el registro (localhost:5001/servidor:latest)
+apiVersion: v1
+kind: Service
+metadata:
+    # Nombre del servicio
+  name: ss-service
+  labels: 
+    app: rep
+spec:
+  clusterIP: None
+  selector:
+      # tiene que coincidir con label definido en pod
+    app: rep
+  ports:
+  - port: 6000
+    name: servidor-port
+    protocol: TCP
+    targetPort: 6000
+---
+# Puesta en marcha de PRIMER Pod para Servidor "s1" del servicio "prueba"
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: ss
+spec:
+  serviceName: ss-service
+  replicas: 3
+  podManagementPolicy: Parallel   # por defecto seria OrderedReady (secuencial)
+  selector:
+    matchLabels:
+      app: rep    # tiene que corresponder a .spec.template.metadata.labels
+  template:
+    metadata:
+      labels:
+        app: rep
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: srvraft
+        image: localhost:5001/srvraft:latest
+        env:
+        - name: MISUBDOMINIODNS
+          value: ss-service.default.svc.cluster.local
+        - name: MINOMBREPOD		# primera replica r-0, segunda r-1, etc./srvraft r-0 ip1 ip2 ip3
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        command:
+        - /srvraft
+        - $(MINOMBREPOD)
+        - ss-0.$(MISUBDOMINIODNS):6000
+        - ss-1.$(MISUBDOMINIODNS):6000
+        - ss-2.$(MISUBDOMINIODNS):6000
+        ports:
+        - containerPort: 6000
+---
+# Puesta en marcha de SEGUNDO Pod para cliente 1 interactivo
+apiVersion: v1
+kind: Pod
+metadata:
+  name: c1
+spec:
+  restartPolicy: Never
+  containers:
+  - name: cliente
+    image: localhost:5001/cliente:latest
+    command:
+    - sleep
+    - "3600"
+    #- /cliente
+    ports:
+    - containerPort: 7000
+
